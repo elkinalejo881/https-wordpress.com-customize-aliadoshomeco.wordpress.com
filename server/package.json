@@ -1,0 +1,23 @@
+{
+  "name": "asisvet-documentos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "reconciliar": "node scripts/reconciliar.js"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.5.0",
+    "@azure/storage-blob": "^12.26.0",
+    "@fastify/multipart": "^9.0.0",
+    "fastify": "^5.0.0",
+    "file-type": "^21.0.0",
+    "mssql": "^11.0.0",
+    "sharp": "^0.35.5"
+  }
+}
