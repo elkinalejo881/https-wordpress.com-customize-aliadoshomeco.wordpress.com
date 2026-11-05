@@ -2,14 +2,14 @@ import crypto from 'node:crypto';
 import { AppError, forbidden, invalid } from '../errors.js';
 import { RateLimiter } from '../passwords.js';
 import { requestsCsv, requestsXlsx } from '../domain/exports.js';
-import { SAMPLE_TYPES, SPECIES } from '../domain/catalog.js';
+import { SPECIES } from '../domain/catalog.js';
 
 export function registerApi({ app, domain, authUser, cfg }) {
   const loginLimit = new RateLimiter(8, 15 * 60_000), regLimit = new RateLimiter(10, 3600_000);
   const need = (u, ...roles) => { if (!roles.includes(u.role)) throw forbidden(); return u; };
   const lab = u => need(u, 'lab_admin', 'lab_staff'), admin = u => need(u, 'lab_admin');
 
-  app.get('/api/config', async () => ({ speciesList: SPECIES, sampleTypes: SAMPLE_TYPES }));
+  app.get('/api/config', async () => ({ speciesList: SPECIES }));
   app.get('/api/labs', async () => ({ labs: domain.listLabs() }));   // directorio público (nombre y ciudad)
 
   app.post('/api/auth/register-vet', async (req, reply) => {
@@ -24,6 +24,7 @@ export function registerApi({ app, domain, authUser, cfg }) {
   app.get('/api/me', async req => ({ user: domain.me(authUser(req)) }));
 
   // --- veterinario ---
+  app.get('/api/vet/patients', async req => ({ patients: domain.patients(need(authUser(req), 'vet')) }));
   app.get('/api/vet/labs', async req => ({ labs: domain.myLabs(need(authUser(req), 'vet')) }));
   app.post('/api/labs/:id/join', async req => ({ link: await domain.joinLab(need(authUser(req), 'vet'), req.params.id, req.body?.code) }));
   app.get('/api/labs/:id/services', async req => ({ services: domain.services(authUser(req), req.params.id) }));
@@ -38,7 +39,7 @@ export function registerApi({ app, domain, authUser, cfg }) {
     throw invalid('BAD_FORMAT', 'Formato no soportado (csv o xlsx)');
   });
   app.get('/api/requests/:id', async req => ({ request: domain.getRequest(authUser(req), req.params.id) }));
-  app.post('/api/requests/:id/status', async req => ({ request: await domain.setStatus(lab(authUser(req)), req.params.id, req.body?.status, req.body?.note) }));
+  app.post('/api/requests/:id/patients/:pid/status', async req => ({ request: await domain.setPatientStatus(lab(authUser(req)), req.params.id, req.params.pid, req.body ?? {}) }));
   app.post('/api/requests/:id/cancel', async req => ({ request: domain.cancel(need(authUser(req), 'vet'), req.params.id) }));
 
   // --- dueño de la plataforma (clave ADMIN_KEY): crea laboratorios y consulta su código ---
@@ -54,6 +55,7 @@ export function registerApi({ app, domain, authUser, cfg }) {
   app.get('/api/admin/labs', async req => { owner(req); return { labs: domain.s.listLabs().map(l => ({ id: l.id, name: l.name, city: l.city, inviteCode: l.inviteCode, vets: domain.s.listLinks(x => x.labId === l.id).length, requests: domain.s.listRequests({ labId: l.id }).total })) }; });
 
   // --- panel del laboratorio ---
+  app.get('/api/lab/summary', async req => domain.summary(lab(authUser(req))));
   app.get('/api/lab/settings', async req => domain.labSettings(lab(authUser(req))));
   app.post('/api/lab/invite', async req => domain.regenerateInvite(admin(authUser(req))));
   app.get('/api/lab/vets', async req => ({ vets: domain.labVets(lab(authUser(req))) }));

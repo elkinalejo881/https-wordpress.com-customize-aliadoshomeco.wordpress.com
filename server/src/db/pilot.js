@@ -77,11 +77,8 @@ export class PilotStore extends MemoryRepository {
   listLinks(f) { return [...this.links.values()].filter(f).map(l => structuredClone(l)); }
 
   // ---------- solicitudes ----------
-  createRequest(r) {
-    const n = (this.counters[r.labId] = (this.counters[r.labId] ?? 0) + 1);
-    const req = { ...r, number: `SOL-${String(n).padStart(5, '0')}` };
-    this.requests.set(req.id, structuredClone(req)); this.save(); return structuredClone(req);
-  }
+  nextCounter(name) { this.counters[name] = (this.counters[name] ?? 0) + 1; this.save(); return this.counters[name]; }
+  createRequest(r) { this.requests.set(r.id, structuredClone(r)); this.save(); return structuredClone(r); }
   getRequest(labId, id) { const r = this.requests.get(id); return r && r.labId === labId ? structuredClone(r) : null; }
   updateRequest(labId, id, patch) { const r = this.requests.get(id); if (!r || r.labId !== labId) return null; Object.assign(r, patch, { updatedAt: new Date() }); this.save(); return structuredClone(r); }
   listRequests(f, { page = 1, pageSize = 25 } = {}) {
@@ -91,7 +88,7 @@ export class PilotStore extends MemoryRepository {
     if (f.status) r = r.filter(x => x.status === f.status);
     if (f.from) r = r.filter(x => x.createdAt >= f.from);
     if (f.to) r = r.filter(x => x.createdAt <= f.to);
-    if (f.q) { const q = f.q.toLowerCase(); r = r.filter(x => `${x.number} ${x.patient.name} ${x.patient.ownerName ?? ''} ${x.clinicName}`.toLowerCase().includes(q)); }
+    if (f.q) { const q = f.q.toLowerCase(); r = r.filter(x => `${x.code} ${x.clinicName} ${x.pats.map(p => `${p.name} ${p.owner ?? ''} ${p.no ?? ''}`).join(' ')}`.toLowerCase().includes(q)); }
     r.sort((a, b) => b.createdAt - a.createdAt);
     return { total: r.length, items: r.slice((page - 1) * pageSize, page * pageSize).map(x => structuredClone(x)) };
   }

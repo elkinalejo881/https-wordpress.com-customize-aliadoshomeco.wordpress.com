@@ -9,7 +9,7 @@ import { DomainService } from '../domain/service.js';
 import { registerApi } from './api.js';
 
 const page = n => new URL(`../../public/${n}`, import.meta.url);
-const CSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; frame-src 'self' https:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const CSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; frame-src 'self' https:; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 export async function buildApp({ cfg, repo, storage, logger = false }) {
   const app = Fastify({ logger, trustProxy: true, maxParamLength: 2048, bodyLimit: 1024 * 1024 });
@@ -19,7 +19,8 @@ export async function buildApp({ cfg, repo, storage, logger = false }) {
   await app.register(multipart, { limits: { fileSize: maxBytes, files: cfg.maxFilesPerUpload, fields: 20, parts: cfg.maxFilesPerUpload + 20 } });
 
   app.addHook('onSend', async (req, reply) => {
-    reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer').header('Cache-Control', 'private, no-store');
+    reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer');
+    if (!reply.getHeader('cache-control')) reply.header('Cache-Control', 'private, no-store');
   });
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) return reply.code(err.status).send({ error: err.code, message: err.message });
@@ -38,6 +39,17 @@ export async function buildApp({ cfg, repo, storage, logger = false }) {
   app.get('/healthz', async () => ({ ok: true }));
   const html = (name) => async (req, reply) => reply.type('text/html; charset=utf-8').header('Content-Security-Policy', CSP).send(await readFile(page(name), 'utf8'));
   app.get('/', html('app.html')); app.get('/documentos', html('documentos.html'));
+  // Archivos estáticos de la interfaz (lista cerrada por extensión; nombres sin rutas)
+  const MIME = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', png: 'image/png', woff2: 'font/woff2', webmanifest: 'application/manifest+json' };
+  const sendAsset = (sub, name, reply, extra = {}) => {
+    const ext = /^[a-z0-9][a-z0-9._-]*\.([a-z0-9]+)$/.exec(name)?.[1];
+    if (!ext || !MIME[ext] || name.includes('..')) return reply.code(404).send();
+    return readFile(new URL(`../../public/assets/${sub}${name}`, import.meta.url)).then(buf => reply.type(MIME[ext]).header('Cache-Control', ext === 'woff2' || ext === 'png' ? 'public, max-age=86400' : 'no-cache').headers(extra).send(buf), () => reply.code(404).send());
+  };
+  app.get('/assets/:name', (req, reply) => sendAsset('', req.params.name, reply));
+  app.get('/assets/fonts/:name', (req, reply) => sendAsset('fonts/', req.params.name, reply));
+  app.get('/manifest.webmanifest', (req, reply) => sendAsset('', 'manifest.webmanifest', reply));
+  app.get('/sw.js', async (req, reply) => reply.type('text/javascript; charset=utf-8').header('Cache-Control', 'no-cache').header('Service-Worker-Allowed', '/').send(await readFile(new URL('../../public/assets/sw.js', import.meta.url))));
 
   app.post('/api/documents', async (req, reply) => {
     const user = authUser(req), p = auth(req), fields = {}, files = [];
@@ -52,7 +64,7 @@ export async function buildApp({ cfg, repo, storage, logger = false }) {
       if (!['attachment', 'patient_photo', 'sample_photo'].includes(fields.kind)) throw forbidden('Solo puede adjuntar fotos o documentos de apoyo');
       if (!fields.requestId) throw invalid('BAD_FIELD', 'Indique la solicitud (requestId)');
     }
-    const bound = fields.requestId ? domain.bindRequestMeta(user, p.tenantId, fields.requestId) : {};
+    const bound = fields.requestId ? domain.bindRequestMeta(user, p.tenantId, fields.requestId, fields.patientId, fields.kind) : {};
     const meta = { ...fields, ...bound, visibleToOwner: fields.visibleToOwner == null ? undefined : fields.visibleToOwner === 'true' };
     const results = [];
     for (const f of files) {   // un archivo malo no cancela los demás
@@ -65,7 +77,7 @@ export async function buildApp({ cfg, repo, storage, logger = false }) {
         results.push({ filename: f.filename, ok: false, code: e.code, message: e.message });
       }
     }
-    if (fields.requestId && p.role !== 'vet' && fields.kind === 'lab_result_pdf' && results.some(r => r.ok && !r.duplicate)) domain.noteEvent(user, fields.requestId, 'Resultado cargado');
+    if (fields.requestId && p.role !== 'vet' && fields.kind === 'lab_result_pdf' && results.some(r => r.ok && !r.duplicate)) domain.noteEvent(user, fields.requestId, 'Resultado cargado (pendiente de entregar)');
     return reply.code(results.some(r => r.ok) ? 201 : 422).send({ results });
   });
 
