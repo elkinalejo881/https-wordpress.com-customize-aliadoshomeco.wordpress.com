@@ -18,7 +18,6 @@ export function loadConfig(env = process.env) {
     },
   };
   if (!cfg.jwtSecret || cfg.jwtSecret.length < 32) throw new Error('AUTH_JWT_SECRET es obligatorio (mínimo 32 caracteres)');
-  if (prod && !cfg.db) throw new Error('En producción se requiere SQL Server (SQL_SERVER, SQL_DATABASE, SQL_USER, SQL_PASSWORD)');
   if (prod && provider === 'local' && env.ALLOW_LOCAL_STORAGE_IN_PROD !== '1') throw new Error('En producción use STORAGE_PROVIDER=azure');
   if (prod && !cfg.scanner.clamdHost && env.ALLOW_NO_AV !== '1') throw new Error('En producción configure CLAMD_HOST (antivirus) o ALLOW_NO_AV=1 asumiendo el riesgo');
   return cfg;

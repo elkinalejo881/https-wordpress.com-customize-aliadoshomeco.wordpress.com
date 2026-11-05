@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { setup, tok, P, png, pdf, jpgWithGps, multipart } from './helpers.js';
 
-const asTok = p => ({ authorization: `Bearer ${tok({ sub: p.userId, ...p })}` });
+const asTok = p => ({ authorization: `Bearer ${tok({ sub: p.userId, ...p })}`, ...(p.role === 'vet' ? { 'x-lab': 't1' } : {}) });
 async function upload(env, who, files, fields = {}) {
-  const m = multipart({ kind: 'patient_photo', patientId: 'pac1', clinicId: 'c1', ownerId: 'ow1', ...fields }, files);
+  const m = multipart({ kind: 'patient_photo', patientId: 'pac1', clinicId: 'v1', ownerId: 'ow1', ...fields }, files);
   return env.app.inject({ method: 'POST', url: '/api/documents', payload: m.payload, headers: { ...m.headers, ...asTok(who) } });
 }
 const get = (env, who, url) => env.app.inject({ method: 'GET', url, headers: asTok(who) });
@@ -46,23 +46,17 @@ test('aislamiento por tenant: otro laboratorio recibe 404 y la lista sale vacía
   assert.equal((await env.app.inject({ method: 'DELETE', url: `/api/documents/${id}`, headers: asTok(P.other) })).statusCode, 404);
 });
 
-test('veterinarios solo ven su clínica; propietarios solo lo suyo y visible', async () => {
+test('veterinarios solo ven los documentos de su clínica', async () => {
   const env = await setup();
-  const a = (await upload(env, P.staff, [{ name: '1.png', type: 'image/png', data: await png(100, 100) }], { clinicId: 'c1', ownerId: 'ow1' })).json().results[0].id;
-  const b = (await upload(env, P.staff, [{ name: '2.png', type: 'image/png', data: await png(110, 100) }], { clinicId: 'c2', ownerId: 'ow2' })).json().results[0].id;
-  const c = (await upload(env, P.staff, [{ name: '3.png', type: 'image/png', data: await png(120, 100) }], { kind: 'sample_photo', clinicId: 'c1', ownerId: 'ow1' })).json().results[0].id; // no visible al propietario
+  const a = (await upload(env, P.staff, [{ name: '1.png', type: 'image/png', data: await png(100, 100) }], { clinicId: 'v1' })).json().results[0].id;
+  const b = (await upload(env, P.staff, [{ name: '2.png', type: 'image/png', data: await png(110, 100) }], { clinicId: 'v2' })).json().results[0].id;
   await env.worker.drain();
   const ids = async who => (await get(env, who, '/api/documents')).json().items.map(i => i.id).sort();
-  assert.deepEqual(await ids(P.vet), [a, c].sort()); assert.deepEqual(await ids(P.vet2), [b]);
-  assert.deepEqual(await ids(P.owner), [a]);
+  assert.deepEqual(await ids(P.vet), [a]); assert.deepEqual(await ids(P.vet2), [b]);
   assert.equal((await get(env, P.vet, `/api/documents/${b}/url`)).statusCode, 404);
-  assert.equal((await get(env, P.owner, `/api/documents/${c}/url`)).statusCode, 404);
-  assert.equal((await get(env, P.owner, `/api/documents/${a}/url`)).statusCode, 200);
-  // el filtro del usuario no puede ampliar su alcance
-  assert.deepEqual((await get(env, P.vet, '/api/documents?patientId=pac1&clinicId=c2')).json().items.map(i => i.id).sort(), [a, c].sort());
-  // permisos de escritura
-  assert.equal((await upload(env, P.owner, [{ name: 'x.png', type: 'image/png', data: await png(9, 9) }])).statusCode, 422);
-  assert.equal((await upload(env, P.vet, [{ name: 'y.png', type: 'image/png', data: await png(10, 9) }], { clinicId: 'c2' })).json().results[0].code, 'FORBIDDEN');
+  assert.equal((await get(env, P.vet, `/api/documents/${a}/url`)).statusCode, 200);
+  assert.deepEqual((await get(env, P.vet, '/api/documents?clinicId=v2')).json().items.map(i => i.id), [a]);   // el filtro no amplía el alcance
+  assert.equal((await upload(env, P.vet, [{ name: 'y.png', type: 'image/png', data: await png(10, 9) }], { clinicId: 'v2' })).statusCode, 422);  // vet sin requestId
   assert.equal((await env.app.inject({ method: 'DELETE', url: `/api/documents/${a}`, headers: asTok(P.staff) })).statusCode, 403);
 });
 

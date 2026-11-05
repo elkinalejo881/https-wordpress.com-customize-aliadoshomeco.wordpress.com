@@ -14,7 +14,7 @@ Tenant en cada consulta · permisos por rol/clínica/propietario en cada listado
 ## Uso
 ```bash
 npm install
-npm test                      # 21 pruebas
+npm test                      # 30 pruebas
 export AUTH_JWT_SECRET=$(openssl rand -hex 24)
 npm start                     # desarrollo: base en memoria + disco local (.data/)
 node scripts/token.js lab1 lab_admin    # imprime un token de prueba
@@ -38,3 +38,7 @@ Tipos (`kind`): `lab_result_pdf`, `clinical_history_pdf`, `patient_photo`, `samp
 - No hay miniaturas de PDF ni vista previa DICOM (se descargan).
 - La detección de contenido activo en PDF es heurística; la defensa principal es el antivirus.
 - Sin limitación de tasa propia (usar WAF/API Management). Ver `docs/OPERACION.md`.
+
+## Piloto: portal veterinario ↔ laboratorio
+Ver `../entrega/GUIA-PILOTO.md` (instalación en VPS y guion de prueba). Rutas nuevas: `/` (portal), `/documentos` (galería), `/api/auth/*`, `/api/labs`, `/api/requests`, `/api/lab/*`, `/api/admin/*` (clave `ADMIN_KEY`).
+Usuarios, laboratorios, portafolio y solicitudes viven en `PilotStore` (archivo JSON, `src/db/pilot.js`); migrarlos a SQL Server es el siguiente paso.
