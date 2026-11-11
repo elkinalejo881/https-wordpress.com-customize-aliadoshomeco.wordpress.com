@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Documentos · AsisVet</title>
+<style>
+:root{--bg:#f7f9fa;--card:#fff;--ink:#14262f;--mut:#5b6e78;--pri:#183b50;--acc:#1f7a8c;--bad:#b3261e;--line:#dbe3e8}
+@media(prefers-color-scheme:dark){:root{--bg:#10181c;--card:#18242a;--ink:#e6eef2;--mut:#93a6b0;--pri:#7fc4d6;--acc:#4fb3c8;--line:#2a3a42}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+h1{font-size:17px;margin:0 auto 0 0;color:var(--pri)}
+input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);min-height:40px}
+button{cursor:pointer}button.p{background:var(--pri);color:var(--bg);border-color:var(--pri)}
+main{padding:16px;max-width:1200px;margin:auto}
+#drop{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;color:var(--mut);margin-bottom:14px}
+#drop.over{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.c{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
+.c .t{aspect-ratio:4/3;background:var(--line);display:grid;place-items:center;font-size:34px;color:var(--mut)}
+.c img{width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .25s}.c img.ok{opacity:1}
+.c .m{padding:8px;font-size:12px;color:var(--mut);overflow:hidden}.c .m b{display:block;color:var(--ink);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.tag{color:var(--bad)}
+#log{font-size:13px;margin:0 0 10px;padding:0;list-style:none}#log li.e{color:var(--bad)}
+#view{position:fixed;inset:0;background:#000d;display:none;flex-direction:column;z-index:10}
+#view.on{display:flex}#bar{display:flex;gap:8px;padding:8px;background:var(--card);align-items:center}#bar span{margin-right:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#stage{flex:1;display:grid;place-items:center;overflow:auto}#stage img{max-width:100%;max-height:100%}#stage iframe{width:100%;height:100%;border:0;background:#fff}
+#more{display:block;margin:16px auto;visibility:hidden}.msg{color:var(--mut);text-align:center;padding:30px}
+</style></head><body>
+<header><h1>Documentos</h1>
+<input id="pat" placeholder="Paciente (ID)" size="12"><select id="kind"><option value="">Todos los tipos</option></select>
+<button class="p" id="go">Buscar</button><button id="pick">Subir…</button><input id="file" type="file" multiple hidden></header>
+<main><div id="drop">Arrastre aquí imágenes o PDF (varios a la vez) · o use «Subir…»</div><ul id="log"></ul>
+<div id="grid"></div><div class="msg" id="empty" hidden>No hay documentos.</div><button id="more">Cargar más</button></main>
+<div id="view"><div id="bar"><span id="vt"></span><button id="dl">Descargar</button><button id="x">Cerrar ✕</button></div><div id="stage"></div></div>
+<script>
+const KINDS={lab_result_pdf:'Resultado de laboratorio (PDF)',clinical_history_pdf:'Historia clínica (PDF)',patient_photo:'Foto del paciente',sample_photo:'Foto de muestra',diagnostic_image:'Imagen diagnóstica',radiograph:'Radiografía',ultrasound:'Ecografía',attachment:'Adjunto',generated_report:'Informe generado'};
+const $=id=>document.getElementById(id);
+// El token llega en #token=... (se guarda en sessionStorage y se quita de la URL)
+const h=new URLSearchParams(location.hash.slice(1));if(h.get('token')){sessionStorage.setItem('t',h.get('token'));history.replaceState(null,'',location.pathname)}
+const TOKEN=sessionStorage.getItem('t')||'';const H={Authorization:'Bearer '+TOKEN};
+for(const[k,v]of Object.entries(KINDS))$('kind').add(new Option(v,k));
+let page=1,hasMore=false,loading=false,cur=null;
+const api=async(u,o={})=>{const r=await fetch(u,{...o,headers:{...H,...o.headers}});if(r.status===401){document.body.innerHTML='<p class="msg">Sesión vencida. Vuelva a entrar.</p>';throw 0}return r};
+async function load(reset){
+  if(loading)return;loading=true;if(reset){page=1;$('grid').textContent=''}
+  const q=new URLSearchParams({page,pageSize:24});if($('pat').value)q.set('patientId',$('pat').value.trim());if($('kind').value)q.set('kind',$('kind').value);
+  const j=await(await api('/api/documents?'+q)).json();
+  for(const d of j.items)$('grid').append(card(d));
+  hasMore=j.hasMore;page++;$('empty').hidden=!!$('grid').children.length;$('more').style.visibility=hasMore?'visible':'hidden';loading=false;io.unobserve($('more'));io.observe($('more'));
+}
+function card(d){
+  const c=document.createElement('div');c.className='c';const t=document.createElement('div');t.className='t';
+  if(d.thumbnailUrl){const i=new Image();i.loading='lazy';i.decoding='async';i.alt='';i.src=d.thumbnailUrl;i.onload=()=>i.classList.add('ok');t.append(i)}
+  else t.textContent=d.mime==='application/pdf'?'📄':d.status==='available'?'🩻':'⏳';
+  const m=document.createElement('div');m.className='m';const b=document.createElement('b');b.textContent=d.filename;b.title=d.filename;
+  const s=document.createElement('span');s.textContent=KINDS[d.kind]+' · '+new Date(d.createdAt).toLocaleDateString();
+  m.append(b,s);if(d.status!=='available'){const x=document.createElement('div');x.className=d.status==='processing'?'':'tag';x.textContent=d.status==='processing'?'Procesando…':'No disponible';m.append(x)}
+  if(d.deleted){const x=document.createElement('div');x.className='tag';x.textContent='Eliminado';m.append(x)}
+  c.append(t,m);c.onclick=()=>d.status==='available'?open(d):alert(d.status==='processing'?'El archivo aún se está procesando.':'Este archivo no está disponible.');return c;
+}
+async function open(d){
+  cur=d;$('vt').textContent=d.filename;$('stage').textContent='Cargando…';$('view').classList.add('on');
+  const isImg=d.mime.startsWith('image/')&&d.hasThumbnail;
+  const r=await api(`/api/documents/${d.id}/url?disposition=inline`+(isImg?'&variant=optimized':''));if(!r.ok){$('stage').textContent='No autorizado';return}
+  const{url}=await r.json();$('stage').textContent='';
+  if(isImg){const i=new Image();i.src=url;i.alt=d.filename;$('stage').append(i)}
+  else if(d.mime==='application/pdf'){const f=document.createElement('iframe');f.src=url;f.title=d.filename;f.setAttribute('sandbox','allow-same-origin');$('stage').append(f)}
+  else $('stage').textContent='Este formato no se puede mostrar aquí (p. ej. DICOM). Use «Descargar».';
+}
+$('dl').onclick=async()=>{const r=await api(`/api/documents/${cur.id}/url?disposition=attachment`);if(r.ok)location.href=(await r.json()).url};
+$('x').onclick=()=>{$('view').classList.remove('on');$('stage').textContent=''};
+addEventListener('keydown',e=>{if(e.key==='Escape')$('x').click()});
+$('go').onclick=()=>load(true);$('more').onclick=()=>load();
+// Carga progresiva: al acercarse al final se pide la página siguiente
+const io=new IntersectionObserver(e=>{if(e[0].isIntersecting&&hasMore)load()},{rootMargin:'400px'});
+// Carga múltiple con progreso por archivo
+function send(file){
+  const li=document.createElement('li');li.textContent=file.name+' · 0%';$('log').append(li);
+  const fd=new FormData();fd.append('kind',$('kind').value||(file.type==='application/pdf'?'attachment':'patient_photo'));
+  fd.append('patientId',$('pat').value.trim()||'sin-paciente');fd.append('files',file,file.name);
+  const x=new XMLHttpRequest();x.open('POST','/api/documents');x.setRequestHeader('Authorization',H.Authorization);
+  x.upload.onprogress=e=>li.textContent=file.name+' · '+Math.round(e.loaded/e.total*100)+'%';
+  x.onload=()=>{let r;try{r=JSON.parse(x.responseText).results?.[0]}catch{}
+    if(r?.ok){li.textContent=file.name+(r.duplicate?' · ya existía':' · subido, procesando…')}else{li.className='e';li.textContent=file.name+' · '+(r?.message||'error')}load(true)};
+  x.onerror=()=>{li.className='e';li.textContent=file.name+' · sin conexión'};x.send(fd);
+}
+const many=fs=>{let n=0;const go=()=>{const f=[...fs][n++];if(f){send(f);setTimeout(go,150)}};go()};
+$('pick').onclick=()=>$('file').click();$('file').onchange=e=>{many(e.target.files);e.target.value=''};
+const dz=$('drop');dz.ondragover=e=>{e.preventDefault();dz.classList.add('over')};dz.ondragleave=()=>dz.classList.remove('over');
+dz.ondrop=e=>{e.preventDefault();dz.classList.remove('over');many(e.dataTransfer.files)};
+if(TOKEN)load(true);else $('empty').hidden=false,$('empty').textContent='Falta iniciar sesión.';
+</script></body></html>
